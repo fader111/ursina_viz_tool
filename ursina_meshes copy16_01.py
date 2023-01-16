@@ -48,7 +48,7 @@ window.title = "Ortho viewer V0.1 - " + case  # с какого это не ра
 app = Ursina(development_mode=True, borderless=False)
 
 # camera
-cam = EditorCamera(rotation=(-90, 0, 0), target_z=-170, position=(0,0,0))
+cam = EditorCamera(rotation=(-90, 0, 0), target_z=-170)
 
 # light
 L1 = PointLight(parent=cam, x=0, y=0, z=-170, color=color.rgba(80, 80, 80))
@@ -58,14 +58,12 @@ tooth_ind = 0
 
 
 def action():
-    # highlight the tooth
     global tooth_ind
-    try:  # try здесь на случай если ткнешь мимо зуба
+    try:
         obj_ = mouse.hovered_entity
         tooth_ind = ind = jaw_up.index(obj_)
         mouse.hovered_entity.texture = 'sky_sunset'
         # ToothSurface_11.stl
-        # ToothSurface_XX.stl
         print(f"click on {str(mouse.hovered_entity.model).split('/')[-1]}")
         print(f"index =  {ind}")
     except:
@@ -83,8 +81,6 @@ jaw_up = [Entity(parent=jaw_up_base, model=tooth, on_click=action,
                  collider="box") for tooth in mesh_paths_up]
 jaw_dw = [Entity(parent=jaw_dw_base, model=tooth, on_click=action,
                  collider="box") for tooth in mesh_paths_dw]
-
-jaws = jaw_up + jaw_dw
 
 ##################################### draw landmarks ##################################
 
@@ -143,69 +139,57 @@ lm_up_t2 = [Entity(parent=lm_t2_up_base, model='sphere',
 t1_landmarks = t1_landmarks.reshape(-1, 5, 3)
 t2_landmarks = t2_landmarks.reshape(-1, 5, 3)
 
-
-class Transform:
-    transforms = {}  # tooth_id:angle,transition
-
-    def get_transform(self, do_tr=True):
-        ''' rigid transform upper and lower jaw based on landmarks '''
-
-        # for jaw in jaw_up[:-8],: #№ короткая версия
-        for jaw in jaw_dw, jaw_up:  # рефакторить !!
-            t1_lm_jaw = t1_landmarks[:16] if jaw == jaw_dw else t1_landmarks[16:]
-            t2_lm_jaw = t2_landmarks[:16] if jaw == jaw_dw else t2_landmarks[16:]
-            for t1_lm_tooth, t2_lm_tooth, tooth in zip(t1_lm_jaw,
-                                                       t2_lm_jaw,
-                                                       jaw
-                                                       ):  # 16 teeth
-                # rigid transform
-                M = get_rigid(t1_lm_tooth, t2_lm_tooth)
-
-                rotM = M[:, :3]  # rotation matrix
-                transM = M[:, 3:]  # translation matrix
-
-                print(f"rotM \n{rotM}")
-                print(f"transM \n{transM}")
-                print(f"det: {np.linalg.det(rotM)}")
-                print(
-                    f"t1_lm_tooth t2_lm_tooth \n{t1_lm_tooth} \n{t2_lm_tooth}")
-
-                # calc Euler angles from rotation matrix:
-                # NOTE!!! это не работает. работает вариант скайпи см нижеa
-                #     | r11 | r12 | r13 | theta x = atan2(r32, r33)
-                # M = | r21 | r22 | r23 | theta y = atan2(-r31, sqrt(r32^2 + r33^2))
-                #     | r31 | r32 | r33 | theta z = atan2(r21, r11)
-                # rad = 180 / math.pi  # thats for
-                # theta_x = rad * math.atan2(M[2][1], M[2][2])
-                # theta_y = rad * math.atan2(-M[2][0],
-                #                            math.sqrt(M[2][1]*M[2][1] + M[2][2]*M[2][2]))
-                # # NOTE minus z rotation is Ursina feature, not a bug
-                # theta_z = - rad * math.atan2(M[1][0], M[0][0])
-
-                # that works
-                r = Rotation.from_matrix(rotM)
-                theta_z, theta_x, theta_y = r.as_euler("zxy", degrees=True)
-                theta_z = -theta_z  # ursina property
-                angles = np.array([theta_x, theta_y, theta_z])
-                # возможно не нужно
-                tooth_id = str(tooth.model).split(
-                    '/')[-1].split(".")[0][-2:]  # '37'
-                self.transforms[tooth] = angles, transM
-                # implement calculated values rotation and movement to teeth
-                self.apply_transform(do_tr, tooth, angles, transM)
-
-    def apply_transform(self, do_tr, tooth, angle, transM):
-        # implement calculated values rotation and movement to teeth
-        if do_tr:
-            tooth.rotation = angle
-            tooth.position = transM
-        else:
-            tooth.rotation = (0, 0, 0)
-            tooth.position = (0, 0, 0)
+# called in input
 
 
-transform = Transform()
-transform.get_transform(False) # need for start staging immediately
+def transform(do_tr=True):
+    ''' rigid transform upper and lower jaw based on landmarks '''
+
+    # upd_lm_visibility()
+
+    # for jaw in jaw_up[:-8],: #№ короткая версия
+    for jaw in jaw_dw, jaw_up:
+        t1_lm_jaw = t1_landmarks[:16] if jaw == jaw_dw else t1_landmarks[16:]
+        t2_lm_jaw = t2_landmarks[:16] if jaw == jaw_dw else t2_landmarks[16:]
+        for t1_lm_tooth, t2_lm_tooth, tooth in zip(t1_lm_jaw,
+                                                   t2_lm_jaw,
+                                                   jaw
+                                                   ):  # 16 teeth
+            # rigid transform 
+            M = get_rigid(t1_lm_tooth, t2_lm_tooth)
+
+            rotM = M[:, :3]  # rotation matrix
+            transM = M[:, 3:]  # translation matrix
+
+            print(f"rotM \n{rotM}")
+            print(f"transM \n{transM}")
+            print(f"det: {np.linalg.det(rotM)}")
+            print(f"t1_lm_tooth t2_lm_tooth \n{t1_lm_tooth} \n{t2_lm_tooth}")
+
+            # calc Euler angles from rotation matrix:
+            #     | r11 | r12 | r13 | theta x = atan2(r32, r33)
+            # M = | r21 | r22 | r23 | theta y = atan2(-r31, sqrt(r32^2 + r33^2))
+            #     | r31 | r32 | r33 | theta z = atan2(r21, r11)
+            # rad = 180 / math.pi  # thats for
+            # это не работает. работает вариант скайпи см нижеa
+            # theta_x = rad * math.atan2(M[2][1], M[2][2])
+            # theta_y = rad * math.atan2(-M[2][0],
+            #                            math.sqrt(M[2][1]*M[2][1] + M[2][2]*M[2][2]))
+            # # NOTE minus z rotation is Ursina feature, not a bug
+            # theta_z = - rad * math.atan2(M[1][0], M[0][0])
+
+            # that works
+            r = Rotation.from_matrix(rotM)
+            theta_z, theta_x, theta_y = r.as_euler("zxy", degrees=True)
+            theta_z = -theta_z  # ursina property
+
+            # implement calculated values rotation and movement to teeth
+            if do_tr:
+                tooth.rotation = (theta_x, theta_y, theta_z)
+                tooth.position = transM
+            else:
+                tooth.rotation = (0, 0, 0)
+                tooth.position = (0, 0, 0)
 
 
 def upd_lm_visibility():  # это хозяйство подтормаживает и надо бы его рафакторить
@@ -227,7 +211,7 @@ def input(key):
         quit()
 
     if key == 't':
-        transform.get_transform(impl_trans)
+        transform(impl_trans)
         impl_trans = not impl_trans
 
     if key == '1':
@@ -239,12 +223,6 @@ def input(key):
         jaw_dw_base.visible = not jaw_dw_base.visible
         lm_t1_dw_base.visible = not lm_t1_dw_base.visible
         lm_t2_dw_base.visible = not lm_t2_dw_base.visible
-
-    if key=="p":    
-        # print(f"rot {jaw_dw.rotation}\n pos {jaw_dw.position}")
-        print(f"cam pos {cam.position}")
-
-steps = 200 # steps for staging 
 
 
 def update():
@@ -260,19 +238,6 @@ def update():
                                          held_keys['d']) * time.dt*10
         jaw_up[tooth_ind].rotation_x += (held_keys['z'] -
                                          held_keys['x']) * time.dt*10
-
-    if held_keys['g']:  # apply staging
-        for tooth in transform.transforms.keys():
-            angles, translations = transform.transforms[tooth]
-            if abs(tooth.rotation_z) <= abs(angles[2]):
-                tooth.rotation += angles/steps
-                tooth.position += translations/steps
-                # print(f"rot {base_point.rotation}\n pos {base_point.position}")
-                # print(f"trans {tooth.transform[:2]}") # position, rotation
-    if held_keys['r']:
-        for tooth in transform.transforms.keys():
-            tooth.rotation = (0, 0, 0)
-            tooth.position = (0, 0, 0)
 
 
 # start running
